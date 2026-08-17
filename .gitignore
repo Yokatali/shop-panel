@@ -1,0 +1,42 @@
+# --- bagimliliklar ve derleme cikislari ---
+node_modules/
+dist/
+src-tauri/target/
+*.log
+
+# Tauri'nin otomatik urettigi editor semalari. Derleme icin gerekli degil,
+# `tauri dev` calistirinca yeniden olusur.
+src-tauri/gen/
+
+# --- musteri verisi: ASLA depoya girmemeli ---
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+backups/
+
+# --- guncelleme imzalama anahtarlari: ASLA depoya girmemeli ---
+# Ozel anahtar yalnizca yerelde ve GitHub Actions secret olarak tutulur.
+*.key
+*.pem
+*.p12
+*.pfx
+.tauri/
+~/.tauri/
+
+# --- kurulmus uygulama kopyasi (derlenmis exe kullanici adi icerir) ---
+UygulamaDosyası/
+
+# --- gorsel QA cikislari (ekran goruntuleri, yerel rapor) ---
+visual-qa/
+
+# --- ortam degiskenleri ---
+.env
+.env.*
+!.env.example
+
+# --- editor ve arac ayarlari ---
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
