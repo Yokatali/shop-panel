@@ -149,6 +149,53 @@ export interface RepairInput extends Omit<Repair, "id" | "ticketNo" | "createdAt
   id: number | undefined;
 }
 
+/** Tamire takılan parça; maliyeti kâr hesabına gider olarak girer. */
+export interface RepairPart {
+  id: number;
+  repairId: number;
+  name: string;
+  cost: number;
+  note: string;
+  createdAt: string;
+}
+
+export interface RepairPartInput {
+  repairId: number;
+  name: string;
+  cost: number;
+  note: string;
+}
+
+/** Tamir geçmişindeki bir olay. */
+export interface RepairEvent {
+  id: number;
+  repairId: number;
+  kind: "created" | "status" | "note" | "part" | "charge";
+  status: string;
+  note: string;
+  createdAt: string;
+}
+
+export interface RepairDetail {
+  repair: Repair;
+  parts: RepairPart[];
+  events: RepairEvent[];
+  partsCost: number;
+}
+
+export interface RepairStatusInput {
+  repairId: number;
+  status: RepairStatus;
+  note: string;
+}
+
+export interface RepairChargeInput {
+  repairId: number;
+  chargedAmount: number;
+  depositAmount: number;
+  note: string;
+}
+
 export interface Expense {
   id: number;
   category: string;
@@ -184,6 +231,7 @@ export interface ReportData {
   stockValue: number;
   saleCount: number;
   repairIncome: number;
+  repairPartsCost: number;
   series: ReportPoint[];
   topProducts: Array<{ name: string; quantity: number; revenue: number }>;
   categoryTotals: Array<{ name: string; quantity: number; revenue: number }>;

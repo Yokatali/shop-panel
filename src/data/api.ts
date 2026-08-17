@@ -11,7 +11,13 @@ import type {
   Product,
   ProductInput,
   Repair,
+  RepairChargeInput,
+  RepairDetail,
+  RepairEvent,
   RepairInput,
+  RepairPart,
+  RepairPartInput,
+  RepairStatusInput,
   ReportData,
   Sale,
   Settings,
@@ -44,6 +50,8 @@ type MockStore = {
   movements: MockMovement[];
   sales: Sale[];
   repairs: Array<Repair & { deliveredAt: string }>;
+  repairParts: RepairPart[];
+  repairEvents: RepairEvent[];
   expenses: Expense[];
   activities: ActivityItem[];
   settings: Settings;
@@ -165,6 +173,8 @@ const seedStore = (): MockStore => {
       { id: 1, category: "Kira", description: "Ağustos kirası", amount: 1_850_000, expenseDate: isoDaysAgo(4), paymentMethod: "transfer", createdAt: now() },
       { id: 2, category: "Sarf", description: "Lehim ve temizlik malzemesi", amount: 168_500, expenseDate: isoDaysAgo(2), paymentMethod: "cash", createdAt: now() },
     ],
+    repairParts: [],
+    repairEvents: [],
     activities: [],
     settings: {
       shopName: "Dükkan", shopPhone: "", theme: "light", density: "comfortable",
@@ -180,6 +190,23 @@ const nextId = () => (mock.sequence += 1);
 const log = (summary: string, action: string) => {
   mock.activities.unshift({ id: nextId(), summary, action, createdAt: now() });
   mock.activities = mock.activities.slice(0, 40);
+};
+
+/** Rust tarafındaki status_label ile aynı metinler; önizleme yanıltmasın. */
+const DURUM_ETIKETI: Record<string, string> = {
+  received: "Alındı",
+  diagnosis: "İnceleniyor",
+  waiting_approval: "Onay Bekliyor",
+  waiting_part: "Parça Bekliyor",
+  in_progress: "Tamirde",
+  ready: "Teslime Hazır",
+  delivered: "Teslim Edildi",
+  cancelled: "İptal Edildi",
+};
+
+/** Önizlemede tamir geçmişine olay ekler. */
+const mockRepairEvent = (repairId: number, kind: RepairEvent["kind"], status: string, note: string) => {
+  mock.repairEvents.push({ id: nextId(), repairId, kind, status, note, createdAt: now() });
 };
 
 const stockOf = (productId: number) =>
@@ -450,8 +477,71 @@ export const api = {
       createdAt: timestamp, updatedAt: timestamp,
       deliveredAt: input.status === "delivered" ? timestamp : "",
     });
+    mockRepairEvent(id, "created", input.status, "Cihaz tamire alındı");
     log(`${input.brand} ${input.model} tamire alındı`, "created");
     return id;
+  },
+
+  repairDetail: async (id: number): Promise<RepairDetail> => {
+    if (isTauri()) return invoke<RepairDetail>("get_repair_detail", { id });
+    const repair = mock.repairs.find((item) => item.id === id);
+    if (!repair) throw new Error("Tamir kaydı bulunamadı.");
+    const parts = mock.repairParts.filter((part) => part.repairId === id);
+    const { deliveredAt: _d, ...temiz } = repair;
+    return {
+      repair: temiz,
+      parts,
+      events: mock.repairEvents.filter((event) => event.repairId === id).slice().reverse(),
+      partsCost: parts.reduce((sum, part) => sum + part.cost, 0),
+    };
+  },
+
+  updateRepairStatus: async (input: RepairStatusInput): Promise<void> => {
+    if (isTauri()) return invoke<void>("update_repair_status", { input });
+    const repair = mock.repairs.find((item) => item.id === input.repairId);
+    if (!repair) throw new Error("Tamir kaydı bulunamadı.");
+    repair.status = input.status;
+    repair.updatedAt = now();
+    if (input.status === "delivered" && !repair.deliveredAt) repair.deliveredAt = now();
+    if (input.status !== "delivered") repair.deliveredAt = "";
+    mockRepairEvent(input.repairId, "status", input.status, input.note || `Durum: ${DURUM_ETIKETI[input.status] ?? input.status}`);
+    log(`${repair.brand} ${repair.model} · durum güncellendi`, "updated");
+  },
+
+  addRepairNote: async (id: number, note: string): Promise<void> => {
+    if (isTauri()) return invoke<void>("add_repair_note", { id, note });
+    const repair = mock.repairs.find((item) => item.id === id);
+    if (!repair) throw new Error("Tamir kaydı bulunamadı.");
+    mockRepairEvent(id, "note", repair.status, note);
+  },
+
+  addRepairPart: async (input: RepairPartInput): Promise<number> => {
+    if (isTauri()) return invoke<number>("add_repair_part", { input });
+    const repair = mock.repairs.find((item) => item.id === input.repairId);
+    if (!repair) throw new Error("Tamir kaydı bulunamadı.");
+    const id = nextId();
+    mock.repairParts.push({ ...input, id, name: input.name.trim(), createdAt: now() });
+    mockRepairEvent(input.repairId, "part", repair.status, `Parça eklendi: ${input.name.trim()}`);
+    return id;
+  },
+
+  deleteRepairPart: async (id: number): Promise<void> => {
+    if (isTauri()) return invoke<void>("delete_repair_part", { id });
+    const part = mock.repairParts.find((item) => item.id === id);
+    if (!part) throw new Error("Parça bulunamadı.");
+    const repair = mock.repairs.find((item) => item.id === part.repairId);
+    mock.repairParts = mock.repairParts.filter((item) => item.id !== id);
+    mockRepairEvent(part.repairId, "part", repair?.status ?? "", `Parça kaldırıldı: ${part.name}`);
+  },
+
+  updateRepairCharge: async (input: RepairChargeInput): Promise<void> => {
+    if (isTauri()) return invoke<void>("update_repair_charge", { input });
+    const repair = mock.repairs.find((item) => item.id === input.repairId);
+    if (!repair) throw new Error("Tamir kaydı bulunamadı.");
+    repair.chargedAmount = input.chargedAmount;
+    repair.depositAmount = input.depositAmount;
+    repair.updatedAt = now();
+    mockRepairEvent(input.repairId, "charge", repair.status, input.note || "Tutar güncellendi");
   },
 
   deleteRepair: async (id: number): Promise<void> => {
@@ -488,6 +578,9 @@ export const api = {
     const revenue = salesRevenueBetween(start, end);
     const repairIncome = repairIncomeBetween(start, end);
     const costOfGoods = costBetween(start, end);
+    const repairPartsCost = mock.repairs
+      .filter((r) => r.status === "delivered" && r.deliveredAt && r.deliveredAt.slice(0, 10) >= start && r.deliveredAt.slice(0, 10) <= end)
+      .reduce((sum, r) => sum + mock.repairParts.filter((p) => p.repairId === r.id).reduce((i, p) => i + p.cost, 0), 0);
     const expenses = expensesBetween(start, end);
     const total = revenue + repairIncome;
 
@@ -516,13 +609,14 @@ export const api = {
 
     return {
       revenue: total,
-      costOfGoods,
-      grossProfit: total - costOfGoods,
+      costOfGoods: costOfGoods + repairPartsCost,
+      grossProfit: total - costOfGoods - repairPartsCost,
       expenses,
-      netProfit: total - costOfGoods - expenses,
+      netProfit: total - costOfGoods - repairPartsCost - expenses,
       stockValue: stockValue(),
       saleCount: completedSales().filter((sale) => sale.saleDate.slice(0, 10) >= start && sale.saleDate.slice(0, 10) <= end && sale.total > 0).length,
       repairIncome,
+      repairPartsCost,
       series: dates.map((date) => {
         const dayRevenue = salesRevenueBetween(date, date) + repairIncomeBetween(date, date);
         const dayExpenses = expensesBetween(date, date);
@@ -555,6 +649,8 @@ export const api = {
     mock.movements = [];
     mock.sales = [];
     mock.repairs = [];
+    mock.repairParts = [];
+    mock.repairEvents = [];
     mock.expenses = [];
     mock.activities = [];
     return { path: "Önizleme modunda yedek oluşturulmadı", createdAt: now() };

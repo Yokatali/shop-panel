@@ -95,6 +95,44 @@ fn upsert_repair(state: State<'_, AppState>, input: RepairInput) -> AppResult<i6
     db::save_repair(&mut connection, input)
 }
 
+/* --------------------------------------------------- tamir takip paneli */
+
+#[tauri::command]
+fn get_repair_detail(state: State<'_, AppState>, id: i64) -> AppResult<RepairDetail> {
+    let connection = locked(&state)?;
+    db::repair_detail(&connection, id)
+}
+
+#[tauri::command]
+fn update_repair_status(state: State<'_, AppState>, input: RepairStatusInput) -> AppResult<()> {
+    let mut connection = locked(&state)?;
+    db::update_repair_status(&mut connection, input)
+}
+
+#[tauri::command]
+fn add_repair_note(state: State<'_, AppState>, id: i64, note: String) -> AppResult<()> {
+    let mut connection = locked(&state)?;
+    db::add_repair_note(&mut connection, id, note)
+}
+
+#[tauri::command]
+fn add_repair_part(state: State<'_, AppState>, input: RepairPartInput) -> AppResult<i64> {
+    let mut connection = locked(&state)?;
+    db::add_repair_part(&mut connection, input)
+}
+
+#[tauri::command]
+fn delete_repair_part(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    let mut connection = locked(&state)?;
+    db::delete_repair_part(&mut connection, id)
+}
+
+#[tauri::command]
+fn update_repair_charge(state: State<'_, AppState>, input: RepairChargeInput) -> AppResult<()> {
+    let mut connection = locked(&state)?;
+    db::update_repair_charge(&mut connection, input)
+}
+
 #[tauri::command]
 fn delete_repair(state: State<'_, AppState>, id: i64) -> AppResult<()> {
     let mut connection = locked(&state)?;
@@ -180,6 +218,8 @@ pub fn run() {
             get_categories, upsert_category, delete_category,
             add_stock_movement, quick_movement, get_sales, void_sale,
             get_repairs, upsert_repair, delete_repair,
+            get_repair_detail, update_repair_status, add_repair_note,
+            add_repair_part, delete_repair_part, update_repair_charge,
             get_expenses, add_expense, delete_expense,
             get_report, get_settings, save_settings,
             backup_database, restore_database, reset_all_data

@@ -180,6 +180,71 @@ pub struct Repair {
     pub updated_at: String,
 }
 
+/// Tamire takılan parça. Maliyeti kâr hesabına gider olarak girer.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairPart {
+    pub id: i64,
+    pub repair_id: i64,
+    pub name: String,
+    pub cost: i64,
+    pub note: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairPartInput {
+    pub repair_id: i64,
+    pub name: String,
+    #[serde(default)]
+    pub cost: i64,
+    #[serde(default)]
+    pub note: String,
+}
+
+/// Tamir geçmişindeki bir olay: durum değişikliği, not ya da parça eklenmesi.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairEvent {
+    pub id: i64,
+    pub repair_id: i64,
+    pub kind: String,
+    pub status: String,
+    pub note: String,
+    pub created_at: String,
+}
+
+/// Takip panelinin ihtiyaç duyduğu her şey tek çağrıda.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairDetail {
+    pub repair: Repair,
+    pub parts: Vec<RepairPart>,
+    pub events: Vec<RepairEvent>,
+    pub parts_cost: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairStatusInput {
+    pub repair_id: i64,
+    pub status: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairChargeInput {
+    pub repair_id: i64,
+    pub charged_amount: i64,
+    #[serde(default)]
+    pub deposit_amount: i64,
+    #[serde(default)]
+    pub note: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepairInput {
@@ -242,6 +307,8 @@ pub struct ReportData {
     pub stock_value: i64,
     pub sale_count: i64,
     pub repair_income: i64,
+    /// Teslim edilen tamirlere takılan parçaların maliyeti (gider).
+    pub repair_parts_cost: i64,
     pub series: Vec<ReportPoint>,
     pub top_products: Vec<TopProduct>,
     pub category_totals: Vec<CategoryTotal>,

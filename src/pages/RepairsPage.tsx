@@ -16,9 +16,9 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "done", label: "Geçmiş" },
 ];
 
-export function RepairsPage({ search, onEdit, onNew }: {
+export function RepairsPage({ search, onOpen, onNew }: {
   search: string;
-  onEdit: (repair: Repair) => void;
+  onOpen: (repair: Repair) => void;
   onNew: () => void;
 }) {
   const { repairs, ready } = useShop();
@@ -71,7 +71,7 @@ export function RepairsPage({ search, onEdit, onNew }: {
                     className="repair-card"
                     key={repair.id}
                     layout
-                    onClick={() => onEdit(repair)}
+                    onClick={() => onOpen(repair)}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.97 }}

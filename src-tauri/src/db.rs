@@ -189,6 +189,42 @@ fn migrate(connection: &Connection) -> AppResult<()> {
         connection.pragma_update(None, "user_version", 2)?;
     }
 
+    // v2 -> v3: tamir takibi. Durum geçmişi ve takılan parçalar ayrı tutulur,
+    // böylece durum güncellemek için tüm kaydı düzenlemek gerekmez.
+    if version < 3 {
+        connection.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS repair_parts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              repair_id INTEGER NOT NULL REFERENCES repairs(id),
+              name TEXT NOT NULL,
+              cost INTEGER NOT NULL DEFAULT 0 CHECK(cost >= 0),
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_repair_parts_repair ON repair_parts(repair_id);
+
+            CREATE TABLE IF NOT EXISTS repair_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              repair_id INTEGER NOT NULL REFERENCES repairs(id),
+              kind TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT '',
+              note TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_repair_events_repair ON repair_events(repair_id, id);
+            "#,
+        )?;
+        // Mevcut kayıtlar için başlangıç olayı üret ki geçmiş boş görünmesin.
+        connection.execute(
+            r#"INSERT INTO repair_events(repair_id, kind, status, note, created_at)
+               SELECT id, 'created', status, 'Kayıt oluşturuldu', created_at FROM repairs
+               WHERE NOT EXISTS (SELECT 1 FROM repair_events WHERE repair_id = repairs.id)"#,
+            [],
+        )?;
+        connection.pragma_update(None, "user_version", 3)?;
+    }
+
     // Eski kurulumlarda kullanılan tabloyu temizle.
     connection.execute_batch("DROP TABLE IF EXISTS schema_meta;")?;
     Ok(())
@@ -745,11 +781,198 @@ pub fn save_repair(connection: &mut Connection, input: RepairInput) -> AppResult
         let id = tx.last_insert_rowid();
         let ticket_no = format!("T-{}-{:04}", Local::now().format("%y"), id);
         tx.execute("UPDATE repairs SET ticket_no=?1 WHERE id=?2", params![ticket_no,id])?;
+        log_repair_event(&tx, id, "created", &input.status, "Cihaz tamire alındı")?;
         audit(&tx,"repair",id,"created",&format!("{} {} tamire alındı",input.brand.trim(),input.model.trim()))?;
         id
     };
     tx.commit()?;
     Ok(id)
+}
+
+/* ------------------------------------------------------- tamir takibi -- */
+
+fn log_repair_event(tx: &Transaction<'_>, repair_id: i64, kind: &str, status: &str, note: &str) -> AppResult<()> {
+    tx.execute(
+        "INSERT INTO repair_events(repair_id, kind, status, note, created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![repair_id, kind, status, note.trim(), now()],
+    )?;
+    Ok(())
+}
+
+fn repair_by_id(connection: &Connection, id: i64) -> AppResult<Repair> {
+    connection
+        .query_row(
+            r#"SELECT id,ticket_no,customer_name,customer_phone,brand,model,imei,problem,status,
+               received_at,planned_delivery_at,estimated_cost,charged_amount,deposit_amount,notes,created_at,updated_at
+               FROM repairs WHERE id=?1 AND archived_at IS NULL"#,
+            [id],
+            |row| Ok(Repair {
+                id: row.get(0)?, ticket_no: row.get(1)?, customer_name: row.get(2)?, customer_phone: row.get(3)?,
+                brand: row.get(4)?, model: row.get(5)?, imei: row.get(6)?, problem: row.get(7)?, status: row.get(8)?,
+                received_at: row.get(9)?, planned_delivery_at: row.get(10)?, estimated_cost: row.get(11)?,
+                charged_amount: row.get(12)?, deposit_amount: row.get(13)?, notes: row.get(14)?,
+                created_at: row.get(15)?, updated_at: row.get(16)?,
+            }),
+        )
+        .optional()?
+        .ok_or_else(|| AppError::Validation("Tamir kaydı bulunamadı.".into()))
+}
+
+/// Takip panelinin tüm verisi: kayıt, parçalar, geçmiş ve parça maliyeti toplamı.
+pub fn repair_detail(connection: &Connection, id: i64) -> AppResult<RepairDetail> {
+    let repair = repair_by_id(connection, id)?;
+
+    let mut part_statement = connection.prepare(
+        "SELECT id, repair_id, name, cost, note, created_at FROM repair_parts WHERE repair_id=?1 ORDER BY id",
+    )?;
+    let parts: Vec<RepairPart> = part_statement
+        .query_map([id], |row| Ok(RepairPart {
+            id: row.get(0)?, repair_id: row.get(1)?, name: row.get(2)?,
+            cost: row.get(3)?, note: row.get(4)?, created_at: row.get(5)?,
+        }))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut event_statement = connection.prepare(
+        "SELECT id, repair_id, kind, status, note, created_at FROM repair_events WHERE repair_id=?1 ORDER BY id DESC",
+    )?;
+    let events: Vec<RepairEvent> = event_statement
+        .query_map([id], |row| Ok(RepairEvent {
+            id: row.get(0)?, repair_id: row.get(1)?, kind: row.get(2)?,
+            status: row.get(3)?, note: row.get(4)?, created_at: row.get(5)?,
+        }))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let parts_cost = parts.iter().map(|part| part.cost).sum();
+    Ok(RepairDetail { repair, parts, events, parts_cost })
+}
+
+/// Yalnızca durumu değiştirir. Tutarlara dokunmaz, yanlışlıkla fiyat bozulmaz.
+pub fn update_repair_status(connection: &mut Connection, input: RepairStatusInput) -> AppResult<()> {
+    let statuses = ["received", "diagnosis", "waiting_approval", "waiting_part", "in_progress", "ready", "delivered", "cancelled"];
+    if !statuses.contains(&input.status.as_str()) {
+        return Err(AppError::Validation("Geçersiz tamir durumu.".into()));
+    }
+
+    let tx = connection.transaction()?;
+    let previous: Option<(String, Option<String>)> = tx
+        .query_row(
+            "SELECT status, delivered_at FROM repairs WHERE id=?1 AND archived_at IS NULL",
+            [input.repair_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let (previous_status, previous_delivered) =
+        previous.ok_or_else(|| AppError::Validation("Tamir kaydı bulunamadı.".into()))?;
+
+    let timestamp = now();
+    // Teslim edildiğinde tarih damgalanır; ciro raporu bunu kullanır.
+    let delivered_at = if input.status == "delivered" {
+        previous_delivered.or(Some(timestamp.clone()))
+    } else {
+        None
+    };
+
+    tx.execute(
+        "UPDATE repairs SET status=?1, delivered_at=?2, updated_at=?3 WHERE id=?4",
+        params![input.status, delivered_at, timestamp, input.repair_id],
+    )?;
+
+    let note = if input.note.trim().is_empty() {
+        format!("Durum: {}", status_label(&input.status))
+    } else {
+        input.note.trim().to_string()
+    };
+    log_repair_event(&tx, input.repair_id, "status", &input.status, &note)?;
+
+    if previous_status != input.status {
+        let (brand, model): (String, String) = tx.query_row(
+            "SELECT brand, model FROM repairs WHERE id=?1", [input.repair_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        audit(&tx, "repair", input.repair_id, "status",
+            &format!("{} {} · {}", brand, model, status_label(&input.status)))?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Tamire not ekler; durumu değiştirmez.
+pub fn add_repair_note(connection: &mut Connection, repair_id: i64, note: String) -> AppResult<()> {
+    if note.trim().is_empty() {
+        return Err(AppError::Validation("Not boş olamaz.".into()));
+    }
+    let tx = connection.transaction()?;
+    let status: Option<String> = tx
+        .query_row("SELECT status FROM repairs WHERE id=?1 AND archived_at IS NULL", [repair_id], |row| row.get(0))
+        .optional()?;
+    let status = status.ok_or_else(|| AppError::Validation("Tamir kaydı bulunamadı.".into()))?;
+    log_repair_event(&tx, repair_id, "note", &status, &note)?;
+    tx.execute("UPDATE repairs SET updated_at=?1 WHERE id=?2", params![now(), repair_id])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Takılan parçayı ve maliyetini kaydeder.
+pub fn add_repair_part(connection: &mut Connection, input: RepairPartInput) -> AppResult<i64> {
+    if input.name.trim().is_empty() {
+        return Err(AppError::Validation("Parça adı boş bırakılamaz.".into()));
+    }
+    if input.cost < 0 {
+        return Err(AppError::Validation("Parça maliyeti negatif olamaz.".into()));
+    }
+    let tx = connection.transaction()?;
+    let status: Option<String> = tx
+        .query_row("SELECT status FROM repairs WHERE id=?1 AND archived_at IS NULL", [input.repair_id], |row| row.get(0))
+        .optional()?;
+    let status = status.ok_or_else(|| AppError::Validation("Tamir kaydı bulunamadı.".into()))?;
+
+    tx.execute(
+        "INSERT INTO repair_parts(repair_id, name, cost, note, created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![input.repair_id, input.name.trim(), input.cost, input.note.trim(), now()],
+    )?;
+    let id = tx.last_insert_rowid();
+    log_repair_event(&tx, input.repair_id, "part", &status,
+        &format!("Parça eklendi: {}", input.name.trim()))?;
+    tx.execute("UPDATE repairs SET updated_at=?1 WHERE id=?2", params![now(), input.repair_id])?;
+    tx.commit()?;
+    Ok(id)
+}
+
+pub fn delete_repair_part(connection: &mut Connection, part_id: i64) -> AppResult<()> {
+    let tx = connection.transaction()?;
+    let row: Option<(i64, String, String)> = tx
+        .query_row(
+            "SELECT p.repair_id, p.name, r.status FROM repair_parts p JOIN repairs r ON r.id=p.repair_id WHERE p.id=?1",
+            [part_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let (repair_id, name, status) = row.ok_or_else(|| AppError::Validation("Parça bulunamadı.".into()))?;
+    tx.execute("DELETE FROM repair_parts WHERE id=?1", [part_id])?;
+    log_repair_event(&tx, repair_id, "part", &status, &format!("Parça kaldırıldı: {}", name))?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Yalnızca tutarları günceller; durum ve diğer alanlara dokunmaz.
+pub fn update_repair_charge(connection: &mut Connection, input: RepairChargeInput) -> AppResult<()> {
+    if input.charged_amount < 0 || input.deposit_amount < 0 {
+        return Err(AppError::Validation("Tutarlar negatif olamaz.".into()));
+    }
+    let tx = connection.transaction()?;
+    let status: Option<String> = tx
+        .query_row("SELECT status FROM repairs WHERE id=?1 AND archived_at IS NULL", [input.repair_id], |row| row.get(0))
+        .optional()?;
+    let status = status.ok_or_else(|| AppError::Validation("Tamir kaydı bulunamadı.".into()))?;
+
+    tx.execute(
+        "UPDATE repairs SET charged_amount=?1, deposit_amount=?2, updated_at=?3 WHERE id=?4",
+        params![input.charged_amount, input.deposit_amount, now(), input.repair_id],
+    )?;
+    let note = if input.note.trim().is_empty() { "Tutar güncellendi".to_string() } else { input.note.trim().to_string() };
+    log_repair_event(&tx, input.repair_id, "charge", &status, &note)?;
+    tx.commit()?;
+    Ok(())
 }
 
 fn status_label(status: &str) -> &str {
@@ -1075,16 +1298,28 @@ pub fn report(connection: &Connection, start: &str, end: &str) -> AppResult<Repo
         name: row.get(0)?, quantity: row.get(1)?, revenue: row.get(2)?,
     }))?.collect::<Result<Vec<_>, _>>()?;
 
+    // Teslim edilen tamirlerde kullanılan parçaların maliyeti de kâra düşer.
+    let repair_parts_cost: i64 = connection.query_row(
+        r#"SELECT COALESCE(SUM(p.cost),0) FROM repair_parts p
+           JOIN repairs r ON r.id = p.repair_id
+           WHERE r.archived_at IS NULL AND r.status='delivered' AND r.delivered_at IS NOT NULL
+             AND substr(r.delivered_at,1,10) BETWEEN ?1 AND ?2"#,
+        params![start, end], |r| r.get(0),
+    )?;
+
     let total_revenue = revenue + repair_income;
+    // Ürün maliyeti ile parça maliyeti birlikte "satılan malın maliyeti"ni oluşturur.
+    let total_cost = cost_of_goods + repair_parts_cost;
     Ok(ReportData {
         revenue: total_revenue,
-        cost_of_goods,
-        gross_profit: total_revenue - cost_of_goods,
+        cost_of_goods: total_cost,
+        gross_profit: total_revenue - total_cost,
         expenses,
-        net_profit: total_revenue - cost_of_goods - expenses,
+        net_profit: total_revenue - total_cost - expenses,
         stock_value,
         sale_count,
         repair_income,
+        repair_parts_cost,
         series,
         top_products,
         category_totals,
@@ -1125,6 +1360,8 @@ pub fn reset_all_data(connection: &mut Connection, data_dir: &Path) -> AppResult
         DELETE FROM sales;
         DELETE FROM stock_movements;
         DELETE FROM products;
+        DELETE FROM repair_parts;
+        DELETE FROM repair_events;
         DELETE FROM repairs;
         DELETE FROM expenses;
         DELETE FROM audit_log;
@@ -1496,6 +1733,97 @@ mod tests {
         assert!(!yedekler.is_empty(), "sıfırlamadan önce yedek alınmalı");
 
         std::fs::remove_dir_all(&temp).ok();
+    }
+
+    fn ornek_tamir(connection: &mut Connection) -> i64 {
+        save_repair(connection, RepairInput {
+            id: None, customer_name: "Ahmet".into(), customer_phone: "5320000000".into(),
+            brand: "Samsung".into(), model: "A54".into(), imei: String::new(),
+            problem: "Ekran kırık".into(), status: "received".into(), received_at: today(),
+            planned_delivery_at: String::new(), estimated_cost: 50_000, charged_amount: 0,
+            deposit_amount: 0, notes: String::new(),
+        }).unwrap()
+    }
+
+    /// Durum güncellemesi tutarlara ASLA dokunmamalı; kullanıcının asıl şikayeti buydu.
+    #[test]
+    fn status_update_never_touches_money() {
+        let mut connection = test_connection();
+        let id = ornek_tamir(&mut connection);
+        update_repair_charge(&mut connection, RepairChargeInput {
+            repair_id: id, charged_amount: 300_000, deposit_amount: 10_000, note: String::new(),
+        }).unwrap();
+
+        for durum in ["diagnosis", "waiting_part", "in_progress", "ready"] {
+            update_repair_status(&mut connection, RepairStatusInput {
+                repair_id: id, status: durum.into(), note: format!("{} notu", durum),
+            }).unwrap();
+        }
+
+        let detay = repair_detail(&connection, id).unwrap();
+        assert_eq!(detay.repair.status, "ready");
+        assert_eq!(detay.repair.charged_amount, 300_000, "durum değişince alınacak tutar bozulmamalı");
+        assert_eq!(detay.repair.deposit_amount, 10_000, "kapora bozulmamalı");
+        assert_eq!(detay.repair.estimated_cost, 50_000, "tahmini tutar bozulmamalı");
+        assert_eq!(detay.repair.problem, "Ekran kırık", "sorun metni bozulmamalı");
+    }
+
+    #[test]
+    fn repair_history_records_every_step() {
+        let mut connection = test_connection();
+        let id = ornek_tamir(&mut connection);
+        update_repair_status(&mut connection, RepairStatusInput {
+            repair_id: id, status: "waiting_part".into(), note: "Ekran siparişi verildi".into(),
+        }).unwrap();
+        add_repair_note(&mut connection, id, "Müşteri arandı, onay verdi".into()).unwrap();
+        add_repair_part(&mut connection, RepairPartInput {
+            repair_id: id, name: "Orijinal ekran".into(), cost: 150_000, note: String::new(),
+        }).unwrap();
+
+        let detay = repair_detail(&connection, id).unwrap();
+        assert_eq!(detay.events.len(), 4, "kayıt + durum + not + parça = 4 olay");
+        assert!(detay.events.iter().any(|e| e.note.contains("Ekran siparişi")));
+        assert!(detay.events.iter().any(|e| e.note.contains("Müşteri arandı")));
+        assert_eq!(detay.parts.len(), 1);
+        assert_eq!(detay.parts_cost, 150_000);
+    }
+
+    /// Parça maliyeti kâra düşmeli: 300 TL alındı, 150 TL parça => 150 TL kâr.
+    #[test]
+    fn part_cost_reduces_repair_profit() {
+        let mut connection = test_connection();
+        let id = ornek_tamir(&mut connection);
+        add_repair_part(&mut connection, RepairPartInput {
+            repair_id: id, name: "Ekran".into(), cost: 150_000, note: String::new(),
+        }).unwrap();
+        update_repair_charge(&mut connection, RepairChargeInput {
+            repair_id: id, charged_amount: 300_000, deposit_amount: 0, note: String::new(),
+        }).unwrap();
+        update_repair_status(&mut connection, RepairStatusInput {
+            repair_id: id, status: "delivered".into(), note: String::new(),
+        }).unwrap();
+
+        let tarih = today();
+        let rapor = report(&connection, &tarih, &tarih).unwrap();
+        assert_eq!(rapor.repair_income, 300_000);
+        assert_eq!(rapor.repair_parts_cost, 150_000);
+        assert_eq!(rapor.gross_profit, 150_000, "parça maliyeti kârdan düşmeli");
+        assert_eq!(rapor.net_profit, 150_000);
+    }
+
+    #[test]
+    fn deleting_a_part_restores_profit() {
+        let mut connection = test_connection();
+        let id = ornek_tamir(&mut connection);
+        let part_id = add_repair_part(&mut connection, RepairPartInput {
+            repair_id: id, name: "Yanlış parça".into(), cost: 90_000, note: String::new(),
+        }).unwrap();
+        assert_eq!(repair_detail(&connection, id).unwrap().parts_cost, 90_000);
+
+        delete_repair_part(&mut connection, part_id).unwrap();
+        let detay = repair_detail(&connection, id).unwrap();
+        assert_eq!(detay.parts_cost, 0);
+        assert!(detay.events.iter().any(|e| e.note.contains("Parça kaldırıldı")));
     }
 
     #[test]

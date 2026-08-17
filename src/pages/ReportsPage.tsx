@@ -203,7 +203,8 @@ export function ReportsPage() {
               <div className="source-list">
                 <SourceRow label="Ürün satışı" value={data.revenue - data.repairIncome} total={data.revenue} tone="cyan" />
                 <SourceRow label="Tamir geliri" value={data.repairIncome} total={data.revenue} tone="violet" />
-                <SourceRow label="Ürün maliyeti" value={-data.costOfGoods} total={data.revenue} tone="amber" />
+                <SourceRow label="Ürün maliyeti" value={-(data.costOfGoods - data.repairPartsCost)} total={data.revenue} tone="amber" />
+                <SourceRow label="Tamir parça maliyeti" value={-data.repairPartsCost} total={data.revenue} tone="orange" />
                 <SourceRow label="Giderler" value={-data.expenses} total={data.revenue} tone="rose" />
                 <div className="source-total">
                   <span>Net sonuç</span>

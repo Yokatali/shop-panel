@@ -18,7 +18,11 @@ import type {
   Product,
   ProductInput,
   Repair,
+  RepairChargeInput,
+  RepairDetail,
   RepairInput,
+  RepairPartInput,
+  RepairStatusInput,
   ReportData,
   Sale,
   Settings,
@@ -70,6 +74,12 @@ type ShopContextValue = {
   voidSale: (id: number) => Promise<void>;
   saveRepair: (input: RepairInput) => Promise<number>;
   deleteRepair: (id: number) => Promise<void>;
+  repairDetail: (id: number) => Promise<RepairDetail>;
+  updateRepairStatus: (input: RepairStatusInput) => Promise<void>;
+  addRepairNote: (id: number, note: string) => Promise<void>;
+  addRepairPart: (input: RepairPartInput) => Promise<number>;
+  deleteRepairPart: (id: number) => Promise<void>;
+  updateRepairCharge: (input: RepairChargeInput) => Promise<void>;
   saveExpense: (input: ExpenseInput) => Promise<number>;
   deleteExpense: (id: number) => Promise<void>;
   saveSettings: (input: Settings) => Promise<void>;
@@ -194,6 +204,12 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       voidSale: (id) => mutate(() => api.voidSale(id)),
       saveRepair: (input) => mutate(() => api.saveRepair(input)),
       deleteRepair: (id) => mutate(() => api.deleteRepair(id)),
+      repairDetail: (id) => api.repairDetail(id),
+      updateRepairStatus: (input) => mutate(() => api.updateRepairStatus(input)),
+      addRepairNote: (id, note) => mutate(() => api.addRepairNote(id, note)),
+      addRepairPart: (input) => mutate(() => api.addRepairPart(input)),
+      deleteRepairPart: (id) => mutate(() => api.deleteRepairPart(id)),
+      updateRepairCharge: (input) => mutate(() => api.updateRepairCharge(input)),
       saveExpense: (input) => mutate(() => api.saveExpense(input)),
       deleteExpense: (id) => mutate(() => api.deleteExpense(id)),
       resetAllData: async () => {

@@ -5,6 +5,7 @@ import { ExpenseForm } from "./components/ExpenseForm";
 import { GuidedTour } from "./components/GuidedTour";
 import { ProductForm } from "./components/ProductForm";
 import { RepairForm } from "./components/RepairForm";
+import { RepairTrackModal } from "./components/RepairTrackModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { StockActionModal } from "./components/StockActionModal";
 import { Toast } from "./components/Toast";
@@ -46,6 +47,7 @@ export default function App() {
   const [productFormOpen, setProductFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [repairFormOpen, setRepairFormOpen] = useState(false);
+  const [trackRepair, setTrackRepair] = useState<Repair | null>(null);
   const [editingRepair, setEditingRepair] = useState<Repair | null>(null);
   const [expenseFormOpen, setExpenseFormOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -254,7 +256,7 @@ export default function App() {
         {activePage === "repairs" && (
           <RepairsPage
             search={search}
-            onEdit={(repair) => { setEditingRepair(repair); setRepairFormOpen(true); }}
+            onOpen={setTrackRepair}
             onNew={() => { setEditingRepair(null); setRepairFormOpen(true); }}
           />
         )}
@@ -273,6 +275,13 @@ export default function App() {
         onClose={() => { setProductFormOpen(false); setEditingProduct(null); setIsDirty(false); }}
         onDirtyChange={setIsDirty}
       />
+      <RepairTrackModal
+        open={Boolean(trackRepair)}
+        repair={trackRepair}
+        onClose={() => setTrackRepair(null)}
+        onEdit={(repair) => { setTrackRepair(null); setEditingRepair(repair); setRepairFormOpen(true); }}
+      />
+
       <RepairForm
         open={repairFormOpen}
         repair={editingRepair}

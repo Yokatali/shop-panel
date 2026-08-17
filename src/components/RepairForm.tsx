@@ -163,14 +163,22 @@ export function RepairForm({ open, repair, onClose, onDirtyChange }: {
             placeholder="Plansız"
           />
 
-          <MoneyField label="Tahmini tutar" value={form.estimatedCost} onChange={(value) => update("estimatedCost", value)} />
-          <MoneyField label="Alınacak tutar" value={form.chargedAmount} onChange={(value) => update("chargedAmount", value)} />
+          {/* Kayıt anında yalnızca TAHMİNİ tutar sorulur. Kesin tutar ve kapora,
+              parçalar belli olduktan sonra takip panelinden girilir. */}
           <MoneyField
-            label="Kapora"
-            value={form.depositAmount}
-            onChange={(value) => update("depositAmount", value)}
-            hint={form.chargedAmount > 0 ? `Kalan ${formatMoney(balance)}` : undefined}
+            label="Tahmini tutar"
+            value={form.estimatedCost}
+            onChange={(value) => update("estimatedCost", value)}
+            hint="Kesin tutarı sonra takip panelinden girersiniz"
           />
+          {repair && (
+            <MoneyField
+              label="Alınacak tutar"
+              value={form.chargedAmount}
+              onChange={(value) => update("chargedAmount", value)}
+              hint={form.chargedAmount > 0 ? `Kalan ${formatMoney(balance)}` : undefined}
+            />
+          )}
 
           <TextAreaField label="Not" span rows={2} value={form.notes} onChange={(value) => update("notes", value)} />
         </div>
