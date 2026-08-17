@@ -493,6 +493,13 @@ pub fn record_stock_movement(connection: &mut Connection, input: StockMovementIn
     if input.unit_price < 0 {
         return Err(AppError::Validation("Birim fiyat negatif olamaz.".into()));
     }
+    // Makul üst sınır: 1 milyar TL birim fiyat, 1 milyon adet.
+    if input.unit_price > 100_000_000_000 {
+        return Err(AppError::Validation("Birim fiyat çok yüksek.".into()));
+    }
+    if input.quantity_delta.abs() > 1_000_000 {
+        return Err(AppError::Validation("Adet çok yüksek.".into()));
+    }
     let allowed = ["sale", "stock_in", "customer_return", "adjustment"];
     if !allowed.contains(&input.movement_type.as_str()) {
         return Err(AppError::Validation("Geçersiz stok hareketi.".into()));
@@ -519,7 +526,12 @@ pub fn record_stock_movement(connection: &mut Connection, input: StockMovementIn
     if input.movement_type == "sale" || input.movement_type == "customer_return" {
         let quantity = input.quantity_delta.abs();
         let sign = if input.movement_type == "sale" { 1 } else { -1 };
-        total = input.unit_price * quantity * sign;
+        // Taşma olursa sessizce yanlış tutar yazmak yerine işlemi reddet.
+        total = input
+            .unit_price
+            .checked_mul(quantity)
+            .and_then(|ara| ara.checked_mul(sign))
+            .ok_or_else(|| AppError::Validation("Tutar hesaplanamayacak kadar büyük.".into()))?;
         tx.execute(
             "INSERT INTO sales(sale_date,subtotal,total,payment_method,note,status,created_at) VALUES(?1,?2,?2,?3,?4,'completed',?1)",
             params![timestamp, total, payment_method, input.note.trim()],
@@ -1343,6 +1355,7 @@ pub fn create_backup(connection: &Connection, data_dir: &Path, destination: Opti
     if integrity != "ok" {
         return Err(AppError::Validation("Yedek doğrulaması başarısız oldu.".into()));
     }
+    prune_backups(&backup_dir);
     Ok(BackupResult { path: path.to_string_lossy().to_string(), created_at: timestamp.to_rfc3339() })
 }
 
@@ -1383,6 +1396,57 @@ pub fn reset_all_data(connection: &mut Connection, data_dir: &Path) -> AppResult
     Ok(backup)
 }
 
+/// Yedekler sınırsız birikmesin: en yeni `KEEP` tanesi kalır, eskiler silinir.
+/// Böylece disk şişmez ve eski müşteri verisi süresiz saklanmaz.
+const BACKUP_KEEP: usize = 20;
+
+fn prune_backups(backup_dir: &Path) {
+    let Ok(entries) = fs::read_dir(backup_dir) else { return };
+    let mut backups: Vec<_> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.path().extension().is_some_and(|ext| ext == "sqlite")
+                && entry.file_name().to_string_lossy().starts_with("dukkan-yedek-")
+        })
+        .collect();
+    if backups.len() <= BACKUP_KEEP {
+        return;
+    }
+    // Dosya adı zaman damgası içerdiği için ada göre sıralamak tarih sırası verir.
+    backups.sort_by_key(|entry| entry.file_name());
+    let silinecek = backups.len() - BACKUP_KEEP;
+    for entry in backups.into_iter().take(silinecek) {
+        let _ = fs::remove_file(entry.path());
+    }
+}
+
+/// Geri yüklenecek dosyanın gerçekten bu uygulamanın veritabanı olduğunu doğrular.
+fn validate_backup_schema(source: &Connection) -> AppResult<()> {
+    for tablo in ["products", "sales", "sale_items", "stock_movements", "repairs", "expenses"] {
+        let var = source
+            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1")?
+            .exists([tablo])?;
+        if !var {
+            return Err(AppError::Validation(format!(
+                "Bu dosya Dükkan Paneli yedeği değil ('{}' tablosu yok).",
+                tablo
+            )));
+        }
+    }
+    // Beklenmeyen tetikleyici/görünüm içeren dosyalar reddedilir.
+    let supheli: i64 = source.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view')",
+        [],
+        |row| row.get(0),
+    )?;
+    if supheli > 0 {
+        return Err(AppError::Validation(
+            "Yedek dosyası beklenmeyen tetikleyici veya görünüm içeriyor, güvenlik için yüklenmedi.".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn restore_backup(connection: &mut Connection, data_dir: &Path, source: &Path) -> AppResult<()> {
     if !source.is_file() {
         return Err(AppError::Validation("Yedek dosyası bulunamadı.".into()));
@@ -1392,6 +1456,7 @@ pub fn restore_backup(connection: &mut Connection, data_dir: &Path, source: &Pat
     if integrity != "ok" {
         return Err(AppError::Validation("Seçilen yedek dosyası sağlam değil.".into()));
     }
+    validate_backup_schema(&source_connection)?;
 
     create_backup(connection, data_dir, None)?;
     {

@@ -4,15 +4,27 @@ Telefon mağazası için çevrimdışı stok, satış, tamir, gider ve rapor uyg
 Telefonun yanı sıra kılıf, kulaklık, şarj aleti, kablo, powerbank gibi tüm
 aksesuarlar kategorilerle yönetilir.
 
-## Çalıştırma
+## Kurulum
 
-Son kullanıcı yalnızca Windows kurulum dosyasını çalıştırır:
+En son sürümü indirin:
 
-`src-tauri/target/release/bundle/nsis/Dükkan Paneli_0.1.0_x64-setup.exe`
+**https://yokatali.github.io/shop-panel/**
 
-Node.js, Rust, terminal, sunucu veya internet bağlantısı gerekmez. Kurulum paketi
-WebView2'yi çevrimdışı olarak içerir. Uygulama açılırken arka planda konsol
-(CMD) penceresi açılmaz.
+Node.js, Rust, terminal, sunucu ya da hesap açmak gerekmez. Uygulama açılırken
+arka planda konsol (CMD) penceresi açılmaz.
+
+**Kurulum sırasında internet:** Kurulum paketi küçük tutulduğu için (~4 MB)
+Microsoft WebView2 bileşenini içermez. Windows 10 ve 11'de bu bileşen zaten
+kurulu geldiğinden çoğu bilgisayarda internet gerekmez; kurulu değilse kurulum
+sırasında bir defalığına indirilir.
+
+**Kurulduktan sonra:** uygulama tamamen çevrimdışı çalışır. İnternete yalnızca
+siz *Ayarlar → Veri → Güncellemeleri denetle* dediğinizde bağlanır.
+
+> Windows "Bilinmeyen yayımcı" uyarısı gösterirse **Daha fazla bilgi → Yine de
+> çalıştır** deyin. Bu uyarı, ücretli bir kod imzalama sertifikası
+> kullanılmadığı için çıkar. Dosyanın değiştirilmediğinden emin olmak isterseniz
+> Releases sayfasındaki SHA-256 özetiyle karşılaştırabilirsiniz.
 
 ## Bölümler
 
@@ -80,6 +92,11 @@ kurulmaz.
 - Silinen ürün ve tamir kayıtları fiziksel olarak silinmez, arşivlenir.
 - Yanlış yapılan satış "Geri Al" ile iptal edilir: stok iade edilir, ciro düşülür,
   kayıt geçmişte `geri alındı` olarak görünür.
+
+## Lisans
+
+MIT — bkz. [LICENSE](LICENSE). Kodu dilediğiniz gibi kullanabilir, değiştirebilir
+ve dağıtabilirsiniz.
 
 ## Ücretsiz kullanım
 

@@ -113,7 +113,7 @@ const seedStore = (): MockStore => {
       productType: "device",
       brand: "Apple",
       model: "iPhone 13",
-      imei: "351234567890482",
+      imei: "000000000000001",
       description: "Gece yarısı, pil %87",
       minimumStock: 0,
     }),
@@ -121,7 +121,7 @@ const seedStore = (): MockStore => {
       productType: "device",
       brand: "Samsung",
       model: "Galaxy A25",
-      imei: "356789012345678",
+      imei: "000000000000002",
       minimumStock: 0,
     }),
   ];
@@ -148,21 +148,21 @@ const seedStore = (): MockStore => {
     sales: [],
     repairs: [
       {
-        id: 1, ticketNo: "T-26-0001", customerName: "Mert Kaya", customerPhone: "5320000000",
+        id: 1, ticketNo: "T-26-0001", customerName: "Örnek Müşteri A", customerPhone: "5550000001",
         brand: "Samsung", model: "Galaxy A54", imei: "", problem: "Ekran kırık, görüntü yok",
         status: "ready", receivedAt: isoDaysAgo(2), plannedDeliveryAt: todayIso(),
         estimatedCost: 220_000, chargedAmount: 250_000, depositAmount: 0, notes: "",
         createdAt: now(), updatedAt: now(), deliveredAt: "",
       },
       {
-        id: 2, ticketNo: "T-26-0002", customerName: "Elif Demir", customerPhone: "5331112233",
+        id: 2, ticketNo: "T-26-0002", customerName: "Örnek Müşteri B", customerPhone: "5550000002",
         brand: "Apple", model: "iPhone 11", imei: "", problem: "Şarj soketi temassızlık",
         status: "in_progress", receivedAt: isoDaysAgo(1), plannedDeliveryAt: todayIso(),
         estimatedCost: 85_000, chargedAmount: 0, depositAmount: 0, notes: "",
         createdAt: now(), updatedAt: now(), deliveredAt: "",
       },
       {
-        id: 3, ticketNo: "T-26-0003", customerName: "Ahmet Yılmaz", customerPhone: "",
+        id: 3, ticketNo: "T-26-0003", customerName: "Örnek Müşteri C", customerPhone: "",
         brand: "Xiaomi", model: "Redmi Note 10", imei: "", problem: "Batarya hızlı tükeniyor",
         status: "waiting_approval", receivedAt: isoDaysAgo(5), plannedDeliveryAt: isoDaysAgo(1),
         estimatedCost: 120_000, chargedAmount: 0, depositAmount: 0, notes: "",
