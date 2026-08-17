@@ -7,6 +7,7 @@ import { useShop } from "../data/store";
 import type { Settings } from "../types";
 import { formatDate } from "../utils";
 import { Modal } from "./Modal";
+import { ResetDataPanel } from "./ResetDataPanel";
 import { UpdatePanel } from "./UpdatePanel";
 import { PhoneField, TextField, ToggleRow } from "./fields";
 
@@ -178,6 +179,8 @@ export function SettingsModal({ open, onClose, lastBackup, onBackup, onRestore, 
           />
 
           <UpdatePanel notify={notify} />
+
+          <ResetDataPanel />
 
           <div className="info-card">
             <ShieldCheck size={17} />

@@ -1,6 +1,11 @@
 name: İndirme sitesini yayınla
 
 # site/ klasörü değiştiğinde GitHub Pages'e yayınlar.
+#
+# ÖNEMLİ: Bu iş akışı başarısız olursa "Re-run all jobs" KULLANMAYIN.
+# Yeniden çalıştırma, site paketini aynı çalışmaya ikinci kez yükler ve
+# deploy-pages "Multiple artifacts named github-pages" hatası verir.
+# Bunun yerine Actions sekmesinden "Run workflow" ile YENİ bir çalışma başlatın.
 on:
   push:
     branches: [main]

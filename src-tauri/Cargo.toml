@@ -1,6 +1,6 @@
 [package]
 name = "telefon-dukkan-paneli"
-version = "0.1.0"
+version = "0.1.1"
 description = "Telefon dükkanı için çevrimdışı stok, satış ve tamir takip uygulaması"
 authors = ["Telefon Dükkanı"]
 edition = "2021"

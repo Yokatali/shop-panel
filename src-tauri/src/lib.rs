@@ -144,6 +144,14 @@ fn backup_database(state: State<'_, AppState>, destination: Option<String>) -> A
     db::create_backup(&connection, &data_dir, destination.map(PathBuf::from))
 }
 
+/// Tüm iş verisini siler. Önce otomatik yedek alır, yedeğin yolunu döner.
+#[tauri::command]
+fn reset_all_data(state: State<'_, AppState>) -> AppResult<BackupResult> {
+    let data_dir = state.data_dir.clone();
+    let mut connection = locked(&state)?;
+    db::reset_all_data(&mut connection, &data_dir)
+}
+
 #[tauri::command]
 fn restore_database(state: State<'_, AppState>, source: String) -> AppResult<()> {
     let data_dir = state.data_dir.clone();
@@ -174,7 +182,7 @@ pub fn run() {
             get_repairs, upsert_repair, delete_repair,
             get_expenses, add_expense, delete_expense,
             get_report, get_settings, save_settings,
-            backup_database, restore_database
+            backup_database, restore_database, reset_all_data
         ])
         .run(tauri::generate_context!())
         .expect("Uygulama başlatılamadı");

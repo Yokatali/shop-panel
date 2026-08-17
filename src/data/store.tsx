@@ -73,6 +73,8 @@ type ShopContextValue = {
   saveExpense: (input: ExpenseInput) => Promise<number>;
   deleteExpense: (id: number) => Promise<void>;
   saveSettings: (input: Settings) => Promise<void>;
+  /** Tüm iş verisini siler; yedeğin yolunu döner. */
+  resetAllData: () => Promise<string>;
 };
 
 const ShopContext = createContext<ShopContextValue | null>(null);
@@ -194,6 +196,11 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       deleteRepair: (id) => mutate(() => api.deleteRepair(id)),
       saveExpense: (input) => mutate(() => api.saveExpense(input)),
       deleteExpense: (id) => mutate(() => api.deleteExpense(id)),
+      resetAllData: async () => {
+        const sonuc = await api.resetAllData();
+        await reload();
+        return sonuc.path;
+      },
       saveSettings: async (input) => {
         const saved = await api.saveSettings(input);
         if (mounted.current) setSettings({ ...DEFAULT_SETTINGS, ...saved });

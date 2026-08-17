@@ -547,6 +547,19 @@ export const api = {
       ? invoke<BackupResult>("backup_database", { destination: destination || null })
       : { path: "Önizleme modunda yedek oluşturulmadı", createdAt: now() },
 
+  /** Tüm iş verisini siler ve uygulamayı ilk kurulum hâline döndürür. */
+  resetAllData: async (): Promise<BackupResult> => {
+    if (isTauri()) return invoke<BackupResult>("reset_all_data");
+    mock = seedStore();
+    mock.products = [];
+    mock.movements = [];
+    mock.sales = [];
+    mock.repairs = [];
+    mock.expenses = [];
+    mock.activities = [];
+    return { path: "Önizleme modunda yedek oluşturulmadı", createdAt: now() };
+  },
+
   restore: async (source: string): Promise<void> =>
     isTauri() ? invoke<void>("restore_database", { source }) : undefined,
 

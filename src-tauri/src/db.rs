@@ -1111,6 +1111,41 @@ pub fn create_backup(connection: &Connection, data_dir: &Path, destination: Opti
     Ok(BackupResult { path: path.to_string_lossy().to_string(), created_at: timestamp.to_rfc3339() })
 }
 
+/// Tüm iş verisini siler ve uygulamayı ilk kurulum hâline döndürür.
+/// Yanlışlıkla basılma riskine karşı önce otomatik yedek alınır.
+/// Ayarlar (tema, dükkan adı) korunur; kategoriler varsayılana döner.
+pub fn reset_all_data(connection: &mut Connection, data_dir: &Path) -> AppResult<BackupResult> {
+    let backup = create_backup(connection, data_dir, None)?;
+
+    let tx = connection.transaction()?;
+    // Sıra önemli: alt kayıtlar önce silinir, yabancı anahtar kısıtı bozulmaz.
+    tx.execute_batch(
+        r#"
+        DELETE FROM sale_items;
+        DELETE FROM sales;
+        DELETE FROM stock_movements;
+        DELETE FROM products;
+        DELETE FROM repairs;
+        DELETE FROM expenses;
+        DELETE FROM audit_log;
+        DELETE FROM categories;
+        "#,
+    )?;
+    // Kimlik sayaçlarını sıfırla: yeni kayıtlar 1'den başlasın.
+    let has_sequence = tx
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'")?
+        .exists([])?;
+    if has_sequence {
+        tx.execute("DELETE FROM sqlite_sequence", [])?;
+    }
+    tx.commit()?;
+
+    seed_categories(connection)?;
+    // Boşalan alanı diske geri ver (transaction dışında çalışmalı).
+    connection.execute_batch("VACUUM;")?;
+    Ok(backup)
+}
+
 pub fn restore_backup(connection: &mut Connection, data_dir: &Path, source: &Path) -> AppResult<()> {
     if !source.is_file() {
         return Err(AppError::Validation("Yedek dosyası bulunamadı.".into()));
@@ -1390,6 +1425,77 @@ mod tests {
         assert_eq!(list_expenses(&connection).unwrap()[0].amount, 7_500);
         archive_expense(&mut connection, id).unwrap();
         assert!(list_expenses(&connection).unwrap().is_empty());
+    }
+
+    /// Yeni kurulumda uygulama KESİNLİKLE boş açılmalı. Hiç kimsenin verisi,
+    /// hiçbir örnek/deneme kaydı yeni bir bilgisayara gitmemeli.
+    #[test]
+    fn fresh_install_starts_completely_empty() {
+        let connection = test_connection();
+
+        for tablo in ["products", "sales", "sale_items", "stock_movements", "repairs", "expenses", "audit_log"] {
+            let adet: i64 = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {}", tablo), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(adet, 0, "yeni kurulumda '{}' tablosu boş olmalı, {} kayıt bulundu", tablo, adet);
+        }
+
+        // Gösterge panosundaki her tutar sıfır olmalı.
+        let gosterge = dashboard(&connection).unwrap();
+        assert_eq!(gosterge.today_revenue, 0);
+        assert_eq!(gosterge.month_revenue, 0);
+        assert_eq!(gosterge.month_profit, 0);
+        assert_eq!(gosterge.stock_value, 0);
+        assert_eq!(gosterge.active_repairs, 0);
+        assert_eq!(gosterge.today_sale_count, 0);
+        assert!(gosterge.recent_activity.is_empty(), "yeni kurulumda işlem geçmişi boş olmalı");
+
+        // Yalnızca kategori listesi hazır gelir; bu iş verisi değil, arayüz iskeletidir.
+        assert_eq!(list_products(&connection, "").unwrap().len(), 0);
+        assert!(!list_categories(&connection).unwrap().is_empty());
+    }
+
+    #[test]
+    fn reset_clears_everything_and_returns_to_fresh_state() {
+        let temp = std::env::temp_dir().join(format!("dukkan-reset-testi-{}", std::process::id()));
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut connection = test_connection();
+
+        // Veri üret: ürün, satış, tamir, gider
+        let product_id = save_product(&mut connection, sample_product(5)).unwrap();
+        sell(&mut connection, product_id, 2);
+        save_expense(&mut connection, ExpenseInput {
+            id: None, category: "Kira".into(), description: "Test".into(),
+            amount: 1_000, expense_date: today(), payment_method: String::new(),
+        }).unwrap();
+        save_repair(&mut connection, RepairInput {
+            id: None, customer_name: "Test".into(), customer_phone: String::new(),
+            brand: "Samsung".into(), model: "A50".into(), imei: String::new(),
+            problem: "Ekran".into(), status: "received".into(), received_at: today(),
+            planned_delivery_at: String::new(), estimated_cost: 0, charged_amount: 0,
+            deposit_amount: 0, notes: String::new(),
+        }).unwrap();
+        assert!(dashboard(&connection).unwrap().month_revenue > 0, "önce veri oluşmalı");
+
+        reset_all_data(&mut connection, &temp).unwrap();
+
+        // Sıfırlama sonrası her şey yeni kurulum gibi olmalı
+        for tablo in ["products", "sales", "sale_items", "stock_movements", "repairs", "expenses", "audit_log"] {
+            let adet: i64 = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {}", tablo), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(adet, 0, "sıfırlamadan sonra '{}' boş olmalı", tablo);
+        }
+        let gosterge = dashboard(&connection).unwrap();
+        assert_eq!(gosterge.month_revenue, 0);
+        assert_eq!(gosterge.stock_value, 0);
+        assert!(!list_categories(&connection).unwrap().is_empty(), "kategoriler varsayılana dönmeli");
+
+        // Güvenlik için yedek alınmış olmalı
+        let yedekler: Vec<_> = std::fs::read_dir(&temp).unwrap().filter_map(|e| e.ok()).collect();
+        assert!(!yedekler.is_empty(), "sıfırlamadan önce yedek alınmalı");
+
+        std::fs::remove_dir_all(&temp).ok();
     }
 
     #[test]
