@@ -33,6 +33,27 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # Etiket ile dosyalardaki sürüm uyuşmazsa derlemeyi burada durdur.
+      # Aksi halde "v0.1.2" etiketiyle 0.1.1 sürümü yayınlanır ve kullanıcıların
+      # uygulaması güncellemeyi göremez.
+      - name: Sürüm numarası etiketle uyuşuyor mu
+        shell: bash
+        run: |
+          ETIKET="${GITHUB_REF_NAME#v}"
+          CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          PKG=$(node -p "require('./package.json').version")
+          echo "Etiket           : $ETIKET"
+          echo "tauri.conf.json  : $CONF"
+          echo "package.json     : $PKG"
+          if [ "$ETIKET" != "$CONF" ] || [ "$ETIKET" != "$PKG" ]; then
+            echo ""
+            echo "HATA: Sürüm numaraları etiketle uyuşmuyor."
+            echo "package.json ve src-tauri/tauri.conf.json içindeki \"version\" değerini"
+            echo "$ETIKET yapıp yeniden etiketleyin."
+            exit 1
+          fi
+          echo "Uyumlu."
+
       - name: Bağımlılıkları yükle
         run: npm ci
 
