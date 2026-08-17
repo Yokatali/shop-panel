@@ -2133,6 +2133,54 @@ kbd {
 .backup-status-card small { color: var(--muted); font-size: var(--text-xs); }
 .backup-status-card b { color: var(--text); font-size: var(--text-md); font-weight: 650; }
 
+/* --------------------------------------------------------- guncelleme -- */
+
+.update-card {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+}
+.update-card.yeni {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.update-card.hata {
+  background: color-mix(in srgb, var(--amber) 9%, transparent);
+  border-color: color-mix(in srgb, var(--amber) 26%, transparent);
+}
+.update-head { display: flex; align-items: center; gap: 12px; }
+.update-head > div { display: grid; gap: 2px; min-width: 0; }
+.update-head b { font-size: var(--text-md); font-weight: 650; }
+.update-head small { color: var(--muted); font-size: var(--text-xs); }
+.update-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 12px;
+}
+.update-card.hata .update-icon { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+.update-notes {
+  max-height: 8rem;
+  overflow: auto;
+  padding: 10px 12px;
+  color: var(--text-soft);
+  background: var(--panel);
+  border-radius: 9px;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.update-track { height: 8px; background: var(--panel); border-radius: 99px; overflow: hidden; }
+.update-track i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width 0.3s; }
+.spin { animation: spin 1s linear infinite; }
+
 .backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .backup-actions > button {
   display: flex;

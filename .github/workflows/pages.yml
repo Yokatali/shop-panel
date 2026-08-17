@@ -1,0 +1,42 @@
+name: İndirme sitesini yayınla
+
+# site/ klasörü değiştiğinde GitHub Pages'e yayınlar.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  yayinla:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.dagitim.outputs.page_url }}
+
+    steps:
+      - name: Kodu al
+        uses: actions/checkout@v4
+
+      - name: Pages ayarla
+        uses: actions/configure-pages@v5
+
+      - name: site/ klasörünü paketle
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Yayınla
+        id: dagitim
+        uses: actions/deploy-pages@v4

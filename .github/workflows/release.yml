@@ -1,0 +1,64 @@
+name: Sürüm yayınla
+
+# Yalnızca "v" ile başlayan bir etiket gönderildiğinde çalışır.
+#   git tag v0.2.0 && git push origin v0.2.0
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  derle-ve-yayinla:
+    runs-on: windows-latest
+
+    steps:
+      - name: Kodu al
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Rust kur
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust derleme önbelleği
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Bağımlılıkları yükle
+        run: npm ci
+
+      - name: Testleri çalıştır
+        run: |
+          npx tsc --noEmit
+          npx vitest run --configLoader runner
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Kurulum dosyasını derle, imzala ve yayınla
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Güncelleme imzası. Özel anahtar depoda değil, GitHub secret olarak durur.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Dükkan Paneli ${{ github.ref_name }}"
+          releaseBody: |
+            ### Kurulum
+            Aşağıdaki `.exe` dosyasını indirip çalıştırın.
+
+            Zaten kurulu ise uygulama içinden **Ayarlar → Veri → Güncellemeleri denetle**
+            ile güncelleyebilirsiniz. Ürünleriniz, satışlarınız ve tamir kayıtlarınız korunur.
+          releaseDraft: false
+          prerelease: false
+          # Otomatik güncellemenin okuduğu latest.json dosyasını üretir.
+          includeUpdaterJson: true

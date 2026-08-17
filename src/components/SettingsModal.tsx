@@ -7,6 +7,7 @@ import { useShop } from "../data/store";
 import type { Settings } from "../types";
 import { formatDate } from "../utils";
 import { Modal } from "./Modal";
+import { UpdatePanel } from "./UpdatePanel";
 import { PhoneField, TextField, ToggleRow } from "./fields";
 
 type Tab = "appearance" | "shop" | "data" | "about";
@@ -36,12 +37,22 @@ export function SettingsModal({ open, onClose, lastBackup, onBackup, onRestore, 
   const { settings, saveSettings, notify } = useShop();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [draft, setDraft] = useState<Settings>(settings);
+  const [surum, setSurum] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setDraft(settings);
     setTab(initialTab);
   }, [open, settings, initialTab]);
+
+  // Sürüm numarası tek yerde (tauri.conf.json) tutulur, buraya elle yazılmaz.
+  useEffect(() => {
+    if (!open || surum) return;
+    import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then(setSurum)
+      .catch(() => setSurum(""));
+  }, [open, surum]);
 
   /** Ayarlar anında uygulanır ve kalıcı olarak yazılır. */
   const apply = async (patch: Partial<Settings>) => {
@@ -166,9 +177,11 @@ export function SettingsModal({ open, onClose, lastBackup, onBackup, onRestore, 
             onChange={(checked) => apply({ autoBackup: checked ? "1" : "0" })}
           />
 
+          <UpdatePanel notify={notify} />
+
           <div className="info-card">
             <ShieldCheck size={17} />
-            <p>Tüm veriler yalnızca bu bilgisayarda, çevrimdışı bir SQLite dosyasında tutulur. İnternete hiçbir şey gönderilmez.</p>
+            <p>Tüm veriler yalnızca bu bilgisayarda, çevrimdışı bir SQLite dosyasında tutulur. Güncelleme dışında internete hiçbir şey gönderilmez.</p>
           </div>
         </div>
       )}
@@ -177,7 +190,7 @@ export function SettingsModal({ open, onClose, lastBackup, onBackup, onRestore, 
         <div className="settings-panel">
           <div className="about-card">
             <b>Dükkan Paneli</b>
-            <small>Sürüm 1.0 · Çevrimdışı çalışır</small>
+            <small>{surum ? `Sürüm ${surum}` : "Sürüm okunuyor…"} · Çevrimdışı çalışır</small>
           </div>
 
           <div className="setting-block">

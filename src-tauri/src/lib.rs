@@ -155,6 +155,10 @@ fn restore_database(state: State<'_, AppState>, source: String) -> AppResult<()>
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Güncelleme denetimi elle yapılır (Ayarlar > Veri). İnternet yoksa
+        // uygulama hiçbir şey fark etmeden çevrimdışı çalışmaya devam eder.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let connection = db::open_database(&data_dir)

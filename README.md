@@ -50,6 +50,26 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm.cmd run tauri:build
 ```
 
+## Güncelleme
+
+Uygulama kendiliğinden internete bağlanmaz. Güncelleme denetimi yalnızca siz
+isteyince çalışır: **Ayarlar → Veri → Güncellemeleri denetle**.
+
+Yeni sürüm varsa indirilip kurulur, ardından uygulama yeniden başlatılır.
+**Ürünler, satışlar, tamir kayıtları ve giderler korunur** — veriler kurulum
+klasöründe değil, ayrı bir veri klasöründe (`%APPDATA%\com.telefondukkan.panel`)
+tutulur. Şema değişiklikleri sürümlü migration ile veri kaybı olmadan uygulanır.
+
+Güncelleme paketleri minisign ile imzalanır; imzası doğrulanmayan bir dosya
+kurulmaz.
+
+### Yeni sürüm yayınlama (geliştirici)
+
+1. `package.json` ve `src-tauri/tauri.conf.json` içindeki `version` değerini artırın.
+2. Değişiklikleri commit'leyip gönderin.
+3. Etiket atın: `git tag v0.2.0 && git push origin v0.2.0`
+4. GitHub Actions kurulum dosyasını derler, imzalar ve Release olarak yayınlar.
+
 ## Veri güvenliği
 
 - SQLite veritabanı uygulama kurulumundan bağımsız Windows veri klasöründe tutulur.
